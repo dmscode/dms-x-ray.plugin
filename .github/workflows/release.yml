@@ -21,6 +21,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set plugin version from tag
+        # 从标签（如 v0.2.0 → 0.2.0）改写 _meta.lua 的 version，使 zip 内插件版本与发布一致
+        # 仅在此 runner 上临时改动后打包，不影响仓库内源码
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          sed -i "s/version = \"[^\"]*\"/version = \"${VERSION}\"/" "dms-x-ray.koplugin/_meta.lua"
+
       - name: Package plugin as zip (folder-inclusive)
         # zip 顶层保留 dms-x-ray.koplugin 目录，符合"打包包含文件夹"预期
         run: |

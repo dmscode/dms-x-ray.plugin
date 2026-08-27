@@ -54,6 +54,9 @@ python ../xray-data-tools/build_xray.py <书>.entities.json -o <书>.epub
 5. 非触屏设备：已注册 Dispatcher 动作 `X-Ray lookup`（`XRayLookup`），可绑定键位/手势兜底，
    取最近一次划词文本查询
 
+![DMS X-Ray 划词效果演示](demo.png)
+*多词条匹配弹出选择列表，命中「亚瑟·邓特」后展示人物详情卡片。*
+
 ## 章节偏移校准（lib/xray_calibration.lua）
 
 xray.json 的章节号锚定在生成时的基准书上；换版本（前置广告/引言致序号偏移、
