@@ -29,9 +29,10 @@ jobs:
           zip -r "dist/DMS-X-Ray.${TAG}.zip" dms-x-ray.koplugin
 
       - name: Generate Chinese release notes
-        # 用 tools/gen_release_notes.py 依据提交历史生成友好中文说明（无 base 时自动比对上一 v* 标签）
+        # 用 tools/gen_release_notes.py 依提交历史生成中文说明；
+        # 自动比对当前标签的前一个 v* 标签（首个版本则列全部提交）
         run: |
-          python3 tools/gen_release_notes.py "${{ github.ref_name }}" --out release-notes.md
+          python3 tools/gen_release_notes.py --tag "${{ github.ref_name }}" --out release-notes.md
 
       - name: Create GitHub Release and upload asset
         uses: softprops/action-gh-release@v2
