@@ -16,7 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
+        # fetch-depth: 0 拉取完整 git 历史，供 release notes 脚本比对「上一标签 → 当前标签」区间
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Package plugin as zip (folder-inclusive)
         # zip 顶层保留 dms-x-ray.koplugin 目录，符合"打包包含文件夹"预期
@@ -25,12 +28,17 @@ jobs:
           mkdir -p dist
           zip -r "dist/DMS-X-Ray.${TAG}.zip" dms-x-ray.koplugin
 
+      - name: Generate Chinese release notes
+        # 用 tools/gen_release_notes.py 依据提交历史生成友好中文说明（无 base 时自动比对上一 v* 标签）
+        run: |
+          python3 tools/gen_release_notes.py "${{ github.ref_name }}" --out release-notes.md
+
       - name: Create GitHub Release and upload asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
+          body_path: release-notes.md
           files: dist/*.zip
-          generate_release_notes: true
           draft: false
           prerelease: false
