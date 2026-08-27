@@ -43,6 +43,8 @@ local EDGE_PUNCT = {
 local S = {
     loaded = false,
     path = nil,
+    meta = nil,           -- xray.json 的 meta（校准基准字段来源）
+    fuzzy = 0,            -- 章节校准模糊区间（尾章校准产生；仅放宽条目终点）
     entries = nil,       -- 规整条目数组（下标即 eid）
     index = nil,         -- clean(alias) -> {eid, ...}
     sorted_alias = nil,  -- {{alias, eid}, ...} 按 alias 字节长降序（L2 线性扫）
@@ -136,23 +138,27 @@ local function gramsOf(s)
     return g
 end
 
---- 章节是否在 [from,to] 作用范围内（无范围数据视为全书可见）
+--- 章节是否在 [from, to+fuzzy] 作用范围内（无范围数据视为全书可见）
+--- 终点放宽 fuzzy：吸收尾章校准检测到的中段增删章净差；
+--- 起点绝不放宽：起点语义是"首次出现/防剧透"，放宽会提前泄露
 local function inChapters(range, chapter)
     if not chapter or type(range) ~= "table" then return true end
     local a, b = range[1], range[2]
     if not a or not b then return true end
-    return chapter >= a and chapter <= b
+    return chapter >= a and chapter <= b + S.fuzzy
 end
 
 --- 取当前章节命中的 stage 文本（跟踪剧情发展；无命中返回 nil）
+--- 多段同时命中（fuzzy 放宽终点后相邻段重叠）时取最后一段：最接近当前进度
 local function matchStage(stages, chapter)
     if type(stages) ~= "table" or not chapter then return nil end
+    local last
     for _, st in ipairs(stages) do
         if type(st) == "table" and inChapters(st.chapters, chapter) then
-            return st.text
+            last = st.text
         end
     end
-    return nil
+    return last
 end
 
 -- Levenshtein 复用缓冲（模块级，避免高频分配引发 GC 停顿）
@@ -363,6 +369,8 @@ function XRayData.load(book_file)
     S.loaded = true
     S.path = path
     S.size = size
+    S.meta = type(data.meta) == "table" and data.meta or nil
+    S.fuzzy = 0
     logger.info("xray: loaded", path, "entries:", #S.entries,
         "aliases:", S.alias_count, "bytes:", size)
     return true
@@ -372,6 +380,8 @@ end
 function XRayData.release()
     S.loaded = false
     S.path = nil
+    S.meta = nil
+    S.fuzzy = 0
     S.entries = nil
     S.index = nil
     S.sorted_alias = nil
@@ -379,6 +389,16 @@ function XRayData.release()
     S.alias_count = 0
     S.size = 0
     collectgarbage()
+end
+
+--- meta 元数据（校准基准字段 chapter_first/last 与标题在此；未加载返回 nil）
+function XRayData.meta()
+    return S.meta
+end
+
+--- 设置章节校准模糊区间（main 在校准状态变化时同步；默认 0 = 不放宽）
+function XRayData.setCalibration(fuzzy)
+    S.fuzzy = type(fuzzy) == "number" and fuzzy or 0
 end
 
 --- 查询：text 划词文本；chapter 当前章（nil=全书模式）；allow_fuzzy 开 L3

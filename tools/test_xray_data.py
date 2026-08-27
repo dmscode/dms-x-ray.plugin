@@ -187,6 +187,23 @@ def main():
     r = lookup("地球")
     check("全书模式地球→2 条", len(r) == 2, str(len(r)))
 
+    # 5.5 章节校准模糊区间（fuzzy 仅放宽终点，起点防剧透不放宽；stages 同规则）
+    xd.setCalibration(2)
+    r = lookup("地球", 9)
+    check("fuzzy=2 终点放宽（第9章命中 l1 [1,8+2]）", len(r) == 1 and r[0]["entry"]["id"] == "l1",
+          str(len(r)))
+    r = lookup("地球", 0)
+    check("fuzzy 不放宽起点（第0章无命中）", len(r) == 0, str(len(r)))
+    r = lookup("地球（重建版）", 41)
+    check("fuzzy 对 stages 同样放宽（41 命中 [40,40+2]）",
+          len(r) == 1 and r[0]["stage"] == "完工。",
+          str(dict(r[0]) if r else {}))
+    xd.setCalibration(0)
+    r = lookup("地球", 9)
+    check("fuzzy=0 恢复默认（第9章无命中）", len(r) == 0, str(len(r)))
+    m = xd.meta()
+    check("meta 暴露（校准基准字段来源）", m is not None and m["title"] == "测试书")
+
     # 6. stages 分阶段
     r = lookup("地球（重建版）", 39)
     check("stage 命中第38-39段", len(r) == 1 and r[0]["stage"] == "重建中。",

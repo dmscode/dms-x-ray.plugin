@@ -50,6 +50,12 @@
 "meta": {
   "title": "银河系搭车客指南5部曲",
   "chapter_count": 170,
+  "chapter_first": 1,
+  "chapter_last": 170,
+  "chapter_first_title": "引子",
+  "chapter_last_title": "25",
+  "chapter_first_text": "以约莫九千两百万英里半径绕其旋转的，是一颗彻底无关紧要的小小蓝绿",
+  "chapter_last_text": "“就那儿，四十二号，”福特·大老爷对计程车司机喊道，“就这儿！”司",
   "generated_at": "2026-08-27T10:00:00+08:00",
   "source": "AI 阅读 EPUB 生成",
   "generator": "WorkBuddy / 鼠哥"
@@ -59,12 +65,18 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `title` | 字符串 | 建议 | 书名，展示用 |
-| `chapter_count` | 整数 | 可选 | 全书章节数（TOC 顶层条目数），用于数据完整性校验 |
+| `chapter_count` | 整数 | 可选 | 全书 TOC 顶层条目数，用于完整性校验 |
+| `chapter_first` | 整数 | 可选 | **基准正文第一章编号**（偏移校准基准；缺省=1）。仅指 TOC 中正文内容开始的那一章，跳过封面/目录/序/年表等前置非正文条目 |
+| `chapter_last` | 整数 | 可选 | 基准正文最后一章编号（= 基准正文总章数；缺省=`chapter_count`），用于尾章校准与中段残差检测。**不含番外/后记/附录** |
+| `chapter_first_title` | 字符串 | 可选 | 基准正文第一章标题，**照搬正文 TOC 原文写法**（校准弹窗"预期章节标题"行） |
+| `chapter_last_title` | 字符串 | 可选 | 基准正文最后一章标题，用途同上 |
+| `chapter_first_text` | 字符串 | 可选 | 基准正文第一章**正文开头约 50 字摘录**（去空白拼接；校准弹窗"预期章节内容"行，供用户肉眼比对，弥补标题重复/写法差异） |
+| `chapter_last_text` | 字符串 | 可选 | 基准正文最后一章正文开头约 50 字摘录，用途同上 |
 | `generated_at` | 字符串 | 可选 | 生成时间（ISO 8601） |
 | `source` | 字符串 | 可选 | 数据来源说明 |
 | `generator` | 字符串 | 可选 | 生成者 |
 
-> meta 全部字段为可选展示信息，插件不依赖其做匹配。
+> meta 全部字段为可选展示信息，插件不依赖其做匹配；`chapter_first`/`chapter_last`/`chapter_first_title`/`chapter_last_title`/`chapter_first_text`/`chapter_last_text` 服务于「章节偏移校准」（见《章节偏移校准设计.md》，纯手动、用户肉眼比对），均为**新增向后兼容字段**，缺省即可、不升 format。标题照搬 TOC 原文写法；摘录跳过章节文件开头的元数据行（`#` 注释、source 标记、分隔符、重复标题行）后取正文前 50 字，尾部不加省略号等修饰。
 
 ---
 
@@ -192,7 +204,7 @@
 ```
 
 - 每个 stage 也是 `{chapters: [from, to], text}`，语义同 §7.1
-- 查询时取**当前章节命中的第一个 stage** 的 `text` 作为展示正文
+- 查询时取**当前章节命中的 stage** 的 `text` 作为展示正文；若多段同时命中（章节校准模糊区间放宽终点后相邻段重叠），取**最后一段**（最接近当前进度）
 - 当前章无 stage 命中时，回退到 `summary`/`description`
 - `stages` 与条目级 `chapters` 可共存：条目 `chapters` 控制可见性，`stages` 控制各阶段文案
 
@@ -207,9 +219,9 @@
 
 ### 7.4 章节号约定
 
-- **TOC 顺序号**：以书籍目录（Table of Contents）顶层条目为章节，按文档顺序从 1 编号
+- **章节号语义**：以书籍目录（Table of Contents）条目按文档顺序从 1 连续编号。运行时插件按 KOReader 压平 TOC（全层级去重页码）换算当前章号——单层目录书与"顶层条目顺序号"完全一致；多卷两级目录书中个别卷级页码可能混入计数（与生成端"章级连续编号"存在少量中段偏差），由插件的**章节偏移校准**机制吸收（见《章节偏移校准设计.md》）
 - 多卷合集：各卷章节连续编号（卷1第1章=1，卷2第1章=卷1章数+1，依此类推）
-- 插件运行时按当前阅读页换算章节号（`ReaderToc` 章节起始页数组二分），与数据端编号对齐即可
+- 插件运行时按当前阅读页换算章节号并应用校准偏移，与数据端编号对齐
 - PDF 无稳定章节映射时，插件自动降级为全书模式（忽略 chapters 过滤）
 
 ---
@@ -228,6 +240,7 @@
 ### 8.2 Prompt 要点
 
 向 AI 下达任务时，要求其：
+- `meta` 写全校准六字段：`chapter_first`/`chapter_last`（正文首末章编号，跳过前置物、不含番外）、`chapter_first_title`/`chapter_last_title`（**照搬 TOC 原文写法**，含空格/标点细节）与 `chapter_first_text`/`chapter_last_text`（正文开头前 50 字摘录，供用户校准时肉眼比对）
 - 输出严格符合本规范的 JSON（`format: 1` + `meta` + `entries`）
 - 提取五类实体（characters/locations/events/terms/organizations）
 - 每条目给 `name` + `aliases`（含全名/简称/昵称/外文名，照搬正文写法）
@@ -245,6 +258,9 @@
 - [ ] `format` == 1
 - [ ] 每条目有 `id`/`name`/`type`/`aliases` 且 `aliases` 非空
 - [ ] `type` 为五枚举之一
+- [ ] `chapter_first`/`chapter_last` 存在时为正整数且 `first ≤ last`，与正文首末章实际编号一致
+- [ ] `chapter_first_title`/`chapter_last_title` 与 TOC 原文逐字符一致（含空格）
+- [ ] `chapter_first_text`/`chapter_last_text` 为正文开头摘录（约 50 字，非标题/非元数据行）
 - [ ] `chapters`/`stages` 的章节号在 `[1, chapter_count]` 范围内
 - [ ] `chapters` 的 `from ≤ to`
 - [ ] `stages` 各段 `chapters` 区间不重叠（避免同章多义 stage）

@@ -2,15 +2,16 @@
 
 KOReader 插件：长按划词 → 工具栏「X-Ray」按钮 → 从随书 `xray.json` 模糊查询
 人物 / 地点 / 事件 / 术语 / 组织词条并弹窗展示。支持章节作用范围（防剧透）、
-分阶段描述（跟踪剧情）、一词多义多结果、编辑距离纠错（英文）。为低算力墨水屏设备设计：
-**未使用零占用、查询极低消耗、关书全释放**。
+分阶段描述（跟踪剧情）、一词多义多结果、编辑距离纠错（英文）、章节偏移校准
+（跨版本书籍适配）。为低算力墨水屏设备设计：**未使用零占用、查询极低消耗、关书全释放**。
 
 ## 文档索引
 
 | 文档 | 内容 |
 |---|---|
 | `功能需求文档.md` | 详细需求（FR1–FR8）、匹配算法、资源指标、已验证的 KOReader 源码依据 |
-| `xray.json格式规范.md` | 数据文件 schema、渐进式标注、AI 生成指南（独立格式规范） |
+| `xray.json格式规范.md` | 数据文件 schema、渐进式标注、章节校准字段、AI 生成指南（独立格式规范） |
+| `章节偏移校准设计.md` | 跨版本章节失配问题、首/尾章手动校准机制、模糊区间设计 |
 | `开发路线图.md` | 各阶段实现进度与验收汇总 |
 
 ## 安装
@@ -48,10 +49,25 @@ python ../xray-data-tools/build_xray.py <书>.entities.json -o <书>.epub
 
 1. 开书（需已生成数据：`onReaderReady` 会 stat 探测，存在时划词工具栏才出现 X-Ray 按钮）
 2. 长按划词 → 点「X-Ray」→ 弹出词条（命中 1 条直出详情；多条先出选择列表）
-3. 主菜单 → X-Ray：人物 / 地点 / 事件 / 术语 / 组织列表（默认按当前章过滤）+ 设置
+3. 主菜单 → X-Ray：人物 / 地点 / 事件 / 术语 / 组织列表（默认按当前章过滤）+ 章节校准 + 设置
 4. 设置：模糊匹配（编辑距离纠错）开关、列表显示全书/当前章、数据缓存统计
 5. 非触屏设备：已注册 Dispatcher 动作 `X-Ray lookup`（`XRayLookup`），可绑定键位/手势兜底，
    取最近一次划词文本查询
+
+## 章节偏移校准（lib/xray_calibration.lua）
+
+xray.json 的章节号锚定在生成时的基准书上；换版本（前置广告/引言致序号偏移、
+中段增删章）会失配——仅影响渐进式模式，全书模式无感知。校准机制
+（详见 `章节偏移校准设计.md`，**纯手动，无自动识别**——多部曲/裸数字标题书上
+唯一标题匹配不成立，识别交给用户）：
+
+- **首章校准**（主菜单，必须/推荐）：翻到正文第一章执行；弹窗三行对比
+  （预期章节标题 / 预期章节内容=正文前 50 字 / 当前章节标题），用户肉眼判断后确认
+- **尾章校准**（可选）：翻到正文最后一章（不含番外）执行；检测中段章节净差 →
+  模糊区间 fuzzy=半残差，仅放宽条目终点（起点防剧透绝不放宽）
+- **存储**：`DocSettings`（`<书>.sdr/metadata.<ext>.lua`，key `dms_xray_calibration`），
+  设备本地随书实例；换设备/版本重新校准即覆盖适配，不污染 xray.json
+- 未校准状态无任何提示；开书仍仅一次 stat（零加载承诺不受校准影响）
 
 ## 匹配算法（lib/xray_data.lua）
 
@@ -70,10 +86,13 @@ python ../xray-data-tools/build_xray.py <书>.entities.json -o <书>.epub
 - 内存预算 2MB：数据估算超预算拒绝加载；>700KB 自动剥 `description` 只留 `summary`
 - 完整 `description` 仅展示时才取用、索引期不载入（保持索引轻量）
 
-## 章节作用范围（lib/xray_chapter.lua）
+## 章节作用范围（lib/xray_chapter.lua + lib/xray_calibration.lua）
 
-- 当前页码 → TOC 顺序章节号（1 起）：用 `ReaderToc:getTocTicksFlattened()` 的章节起始页
-  数组线性定位；无 TOC / PDF（`has_pages`）时返回 nil → 全书模式（忽略章节过滤）
+- 当前页码 → 压平 TOC 顺序章节号（1 起）：用 `ReaderToc:getTocTicksFlattened()` 的
+  全层级压平去重页码数组线性定位；无 TOC / PDF（`has_pages`）时返回 nil →
+  全书模式（忽略章节过滤）
+- 章节号经校准偏移换算（`x = p - offset`）后才用于匹配；多级 TOC 的卷页混入等
+  中段偏差由模糊区间吸收（见「章节偏移校准」小节）
 
 ## 弹窗（ui/xray_popup.lua）
 
@@ -83,7 +102,7 @@ python ../xray-data-tools/build_xray.py <书>.entities.json -o <书>.epub
 - **单例池复用**：多次点选复用同一 widget，`_reopen` 换内容不重建
 - 关闭：点弹窗外空白 / 左右下滑 / Back 键；关闭即释放 widget
 
-## 性能实测（385 条目 / 977 别名 / 197KB，含渐进式 chapters）
+## 性能实测（385 条目 / 977 别名 / 198KB，含渐进式 chapters）
 
 | 指标 | PC(LuaJIT) | 墨水屏估算* | 目标 |
 |---|---|---|---|
@@ -93,10 +112,12 @@ python ../xray-data-tools/build_xray.py <书>.entities.json -o <书>.epub
 | 全 miss（L1+L2 全表扫） | 0.29 ms | ~2.9 ms | <5ms ✅ |
 
 \* 按 CPU 主频折算 7–20 倍区间估算；测试脚本 `tools/perf_check.py`、
-逻辑测试 `tools/test_xray_data.py`（lupa 执行真实 Lua，27 用例）。
+逻辑测试 `tools/test_xray_data.py` + `tools/test_xray_calibration.py`
+（lupa 执行真实 Lua，共 47 用例）。
 
-资源约束：未触发零占用（开书仅一次 stat）；书打开期间索引常驻 ≤2MB
-（197KB 数据 → Lua 内存约 0.3MB）；关书 `onCloseDocument` 全释放（清索引 + 弹窗清理 + GC）。
+资源约束：未触发零占用（开书仅一次 stat，校准取消自动识别后无任何预加载）；
+书打开期间索引常驻 ≤2MB
+（198KB 数据 → Lua 内存约 0.3MB）；关书 `onCloseDocument` 全释放（清索引 + 弹窗清理 + GC）。
 
 ## 模块结构
 
@@ -105,15 +126,18 @@ xray-plugin/
 ├── README.md                # 本说明
 ├── 功能需求文档.md           # 需求、算法与性能指标
 ├── xray.json格式规范.md     # 数据格式规范（独立）
+├── 章节偏移校准设计.md       # 跨版本章节失配与校准机制设计
 ├── 开发路线图.md            # 分阶段进度与验证汇总
 ├── tools/
 │   ├── perf_check.py        # 真实数据性能压测（lupa 跑真实 Lua）
-│   └── test_xray_data.py    # 数据层逻辑测试（lupa，27 用例）
+│   ├── test_xray_data.py    # 数据层逻辑测试（lupa，32 用例）
+│   └── test_xray_calibration.py  # 章节校准逻辑测试（lupa，15 用例）
 └── dms-x-ray.koplugin/
     ├── _meta.lua            # 插件元数据（插件管理界面显示）
-    ├── main.lua             # 入口：划词按钮(11_xray)/主菜单/Dispatcher/生命周期
-    ├── lib/xray_data.lua    # 数据层：加载/三级匹配/索引/2MB预算/释放
-    ├── lib/xray_chapter.lua # 章节换算（TOC ticks → 章节号；PDF 降级全书）
+    ├── main.lua             # 入口：划词按钮(11_xray)/主菜单/校准流程/Dispatcher/生命周期
+    ├── lib/xray_data.lua    # 数据层：加载/三级匹配/索引/2MB预算/模糊区间/释放
+    ├── lib/xray_chapter.lua # 章节换算（TOC ticks → 章节号 + 校准偏移；PDF 降级全书）
+    ├── lib/xray_calibration.lua  # 章节校准：DocSettings 存取/手动首尾章偏移计算
     └── ui/xray_popup.lua    # 弹窗：ScrollHtmlWidget 底部浮层/单例池/字体跟随
 
 # 配套转换器（独立于插件）
